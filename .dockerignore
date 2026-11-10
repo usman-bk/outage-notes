@@ -1,0 +1,6 @@
+node_modules
+.next
+.data
+.git
+playwright-report
+test-results
