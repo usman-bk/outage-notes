@@ -29,8 +29,8 @@ export async function signIn(page: Page, email = 'mina@example.com') {
   await expect(page.getByRole('heading', { name: /^Signed in as/ })).toBeVisible();
 }
 
-export async function operator(browser: Browser, email?: string) {
-  const context = await browser.newContext();
+export async function operator(browser: Browser, email?: string, baseURL?: string) {
+  const context = await browser.newContext(baseURL ? { baseURL } : {});
   const page = await context.newPage();
   await signIn(page, email);
   return page;

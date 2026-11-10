@@ -92,9 +92,9 @@ before hydration is a POST, and not a GET with the password in the URL.
 
 `proxy.ts` redirects people with no cookie and does nothing else. Every action checks
 the operator against the database, because an action is a POST that anyone can send.
-One test captures the real request and replays the same bytes with no session, and
-nothing changes. It then sends them with a session and they post, otherwise the first
-half would prove nothing.
+One test captures the real request and replays the same bytes with no session, then
+with a forged cookie, which gets past `proxy.ts`, and nothing changes. It then sends them
+with a real session and they post, otherwise the first two would prove nothing.
 
 The token only says who you are. Removing an operator takes effect on their next
 click.

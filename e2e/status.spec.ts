@@ -260,6 +260,10 @@ test('a Server Action replayed with no session changes nothing', async ({
   await replay();
   expect(await count()).toBe(1);
 
+  // Any cookie at all gets past proxy.ts, so this one is the case only the action itself can refuse.
+  await replay('session=forged.value');
+  expect(await count()).toBe(1);
+
   // The same bytes with a valid session do post, or the check above would prove nothing.
   const cookies = await mina.context().cookies();
   await replay(cookies.map(({ name, value }) => `${name}=${value}`).join('; '));
@@ -401,6 +405,46 @@ test('with no earlier reading the page says it does not know', async ({ page, re
   } finally {
     app.stop();
   }
+});
+
+test('publishing reaches visitors at once, even under a five minute cache', async ({ browser }) => {
+  await closeEverything();
+  const snapshot = path.join(
+    mkdtempSync(path.join(os.tmpdir(), 'outage-notes-long-')),
+    'board.json',
+  );
+  const app = startApp(3214, { BOARD_REVALIDATE_SECONDS: '300', SNAPSHOT_PATH: snapshot });
+  const baseURL = 'http://localhost:3214';
+  try {
+    const visitorContext = await browser.newContext({ baseURL });
+    const visitor = await visitorContext.newPage();
+    await expect(async () => {
+      await visitor.goto('/');
+      await expect(headline(visitor)).toHaveText('All systems operational', { timeout: 500 });
+    }).toPass({ timeout: 20_000 });
+
+    const mina = await operator(browser, undefined, baseURL);
+    await openIncident(mina, { title: uniqueTitle('Long cache') });
+    await visitor.reload();
+    await expect(headline(visitor)).toHaveText('Part of the service is down');
+
+    await post(mina, 'All clear.', 'Resolved');
+    await expect(mina.getByRole('status').filter({ hasText: 'Posted.' })).toBeVisible();
+    await visitor.reload();
+    await expect(headline(visitor)).toHaveText('All systems operational');
+    await visitorContext.close();
+    await mina.context().close();
+  } finally {
+    app.stop();
+  }
+});
+
+test('with no session, the operator area redirects before rendering anything', async ({
+  request,
+}) => {
+  const response = await request.get('/admin', { maxRedirects: 0 });
+  expect(response.status()).toBe(307);
+  expect(response.headers().location).toMatch(/\/login$/);
 });
 
 test('sign in refuses wrong details, then locks, and sign out ends the session', async ({
