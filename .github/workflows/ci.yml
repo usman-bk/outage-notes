@@ -1,0 +1,60 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/outage_notes_test
+      E2E_DATABASE_URL: postgres://postgres:postgres@localhost:5432/outage_notes_e2e_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+
+      # Without the version in the WHERE clause, two operators can both post over each other.
+      # Confirm the suite notices.
+      - name: The simultaneous post test can fail
+        run: |
+          sed -i 's/WHERE id = \$2 AND version = \$3/WHERE id = $2 AND $3::int IS NOT NULL/' src/lib/store.ts
+          git diff --exit-code --quiet src/lib/store.ts && { echo "the edit did not apply"; exit 1; }
+          if npx jest --runInBand -t 'truly simultaneous'; then
+            echo "posts without the version check passed, so the test checks nothing"
+            exit 1
+          fi
+          git checkout src/lib/store.ts
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t outage-notes .
+      - name: With no database the image serves the honest answer
+        run: |
+          docker run -d --name app -p 3000:3000 -e SESSION_SECRET=ci-secret-ci-secret-ci-secret-ci-secret outage-notes
+          for attempt in $(seq 1 30); do curl -sf -o page.html http://localhost:3000/ && break; sleep 1; done
+          grep -q "confirm the current status" page.html
+          docker rm -f app
